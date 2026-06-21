@@ -1,0 +1,64 @@
+:root {
+  --color-bg-top: #bfe9ff;
+  --color-bg-bottom: #6fc6f1;
+  --color-surface: #ffffff;
+  --color-text: #1c2b3a;
+  --color-text-muted: #5b6b7a;
+  --color-primary: #ff9f1c;
+  --color-primary-dark: #e8850a;
+  --color-secondary: #2ec4b6;
+  --color-danger: #ef476f;
+  --color-border: #d8e6ee;
+  --shadow-soft: 0 10px 30px rgba(20, 60, 90, 0.15);
+  --radius: 1rem;
+
+  font: 16px/1.5 'Baloo 2', 'Segoe UI', system-ui, sans-serif;
+  color: var(--color-text);
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: linear-gradient(180deg, var(--color-bg-top), var(--color-bg-bottom));
+  min-height: 100vh;
+}
+
+#app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-weight: 800;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.duck-name-label {
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 13px;
+  color: #1c2b3a;
+  background: rgba(255, 255, 255, 0.85);
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  transform: translateY(-50%);
+}
