@@ -35,9 +35,26 @@ export interface RaceResult {
   raceDurationSeconds: number
 }
 
-export type ScreenName = 'setup' | 'preview' | 'race' | 'results'
+export type ScreenName = 'setup' | 'arena'
+
+/** Sub-states while inside the persistent race arena view. */
+export type ArenaPhase = 'preview' | 'countdown' | 'racing' | 'results'
 
 export interface FinishOrderEntry {
   participantId: string
   finishTime: number
+}
+
+/** A standings row, used for the starting lineup, live ranking, and final results. */
+export interface RankEntry {
+  participantId: string
+  name: string
+  progress: number
+  lane: number
+}
+
+export interface WinnerHistoryEntry {
+  participantId: string
+  name: string
+  raceNumber: number
 }

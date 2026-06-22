@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { duckHue } from '@/utils/duckColors'
 
 export interface DuckMesh {
   group: THREE.Group
@@ -72,8 +73,6 @@ export function createDuckMesh(bodyColor: number): DuckMesh {
   return { group, animationPhase: Math.random() * Math.PI * 2, leftWing, rightWing }
 }
 
-/** Evenly spread, visually distinct hues so even 50 ducks stay tellable apart. */
 export function duckColorForIndex(index: number, total: number): number {
-  const hue = (index / Math.max(total, 1)) % 1
-  return new THREE.Color().setHSL(hue, 0.65, 0.6).getHex()
+  return new THREE.Color().setHSL(duckHue(index, total), 0.65, 0.6).getHex()
 }

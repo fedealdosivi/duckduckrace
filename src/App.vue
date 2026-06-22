@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRaceStore } from '@/stores/race'
-import SetupScreen from '@/components/setup/SetupScreen.vue'
-import RacePreviewScreen from '@/components/race/RacePreviewScreen.vue'
-import RaceScreen from '@/components/race/RaceScreen.vue'
-import ResultsScreen from '@/components/results/ResultsScreen.vue'
+import HomeScreen from '@/components/home/HomeScreen.vue'
+import ArenaScreen from '@/components/arena/ArenaScreen.vue'
 
 const raceStore = useRaceStore()
 const screen = computed(() => raceStore.screen)
@@ -12,10 +10,8 @@ const screen = computed(() => raceStore.screen)
 
 <template>
   <main class="app-shell">
-    <SetupScreen v-if="screen === 'setup'" />
-    <RacePreviewScreen v-else-if="screen === 'preview'" />
-    <RaceScreen v-else-if="screen === 'race'" />
-    <ResultsScreen v-else-if="screen === 'results'" />
+    <HomeScreen v-if="screen === 'setup'" />
+    <ArenaScreen v-else-if="screen === 'arena'" />
   </main>
 </template>
 

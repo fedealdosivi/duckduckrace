@@ -1,56 +1,32 @@
-export const TRACK_LENGTH = 38
-export const LANE_WIDTH = 2.4
-export const ROW_DEPTH = 3.4
-const MAX_COLUMNS = 10
-
-export interface LaneLayout {
-  /** X position of the lane, centered on the track. */
-  x: number
-  /** Z position of this lane's start line (finish line is `start + TRACK_LENGTH`). */
-  startZ: number
-  finishZ: number
-  row: number
-  col: number
-}
+/** Distance ducks travel along X, from the fixed start line to the fixed finish line. */
+export const TRACK_LENGTH = 18
+export const START_X = -TRACK_LENGTH / 2
+export const FINISH_X = TRACK_LENGTH / 2
 
 /**
- * Arranges N ducks into a centered grid of rows/columns so the scene stays
- * readable from 2 up to 50 participants. Each row is shifted forward in Z for
- * visual depth, but every duck still travels the exact same `TRACK_LENGTH` -
- * the row shift is applied identically to its start and finish line, so it
- * never affects race fairness.
+ * How much of the track's length the camera tries to keep in frame at once.
+ * Kept independent of TRACK_LENGTH so the camera stays close to the ducks
+ * (it pans to follow the pack) instead of zooming out to fit the whole track.
  */
-export function computeLaneLayout(count: number): LaneLayout[] {
-  const columns = Math.min(MAX_COLUMNS, Math.max(1, Math.ceil(Math.sqrt(count * 1.8))))
-  const rows = Math.ceil(count / columns)
+export const CAMERA_WINDOW = 9
 
-  const perRow: number[] = []
-  let remaining = count
-  for (let r = 0; r < rows; r++) {
-    const rowsLeft = rows - r
-    const take = Math.ceil(remaining / rowsLeft)
-    perRow.push(take)
-    remaining -= take
-  }
+/** Z-distance between adjacent swim lanes - one lane per duck, stacked toward the camera. */
+export const LANE_SPACING = 1.7
 
-  const layout: LaneLayout[] = []
-  for (let row = 0; row < rows; row++) {
-    const colsInRow = perRow[row]
-    const rowOffset = (row - (rows - 1) / 2) * ROW_DEPTH
-    for (let col = 0; col < colsInRow; col++) {
-      const x = (col - (colsInRow - 1) / 2) * LANE_WIDTH
-      const startZ = -TRACK_LENGTH / 2 + rowOffset
-      layout.push({ x, startZ, finishZ: startZ + TRACK_LENGTH, row, col })
-    }
-  }
-  return layout
+export interface LaneLayout {
+  /** Fixed Z position of this duck's lane (depth). */
+  z: number
+  lane: number
 }
 
-export function trackFootprint(count: number): { width: number; depth: number } {
-  const layout = computeLaneLayout(count)
-  const xs = layout.map((l) => l.x)
-  const width = Math.max(...xs) - Math.min(...xs) + LANE_WIDTH * 2
-  const rows = new Set(layout.map((l) => l.row)).size
-  const depth = TRACK_LENGTH + rows * ROW_DEPTH
-  return { width, depth }
+/** Every duck gets its own lane (classic duck-race look); lanes are centered on Z=0. */
+export function computeLaneLayout(count: number): LaneLayout[] {
+  return Array.from({ length: count }, (_, lane) => ({
+    z: (lane - (count - 1) / 2) * LANE_SPACING,
+    lane,
+  }))
+}
+
+export function trackFootprint(count: number): { windowWidth: number; depth: number } {
+  return { windowWidth: Math.min(TRACK_LENGTH, CAMERA_WINDOW) + 3, depth: count * LANE_SPACING + 3 }
 }
