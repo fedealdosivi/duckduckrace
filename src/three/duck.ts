@@ -1,78 +1,67 @@
 import * as THREE from 'three'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { duckHue } from '@/utils/duckColors'
+
+const MODEL_URL = '/models/duck.glb'
+/** The model's native units are tiny (FBX-exported); scales it up to match the rest of the scene. */
+const MODEL_SCALE = 3.6
 
 export interface DuckMesh {
   group: THREE.Group
-  /** Random per-duck phase so idle bobbing/wing-flap animation isn't synchronized. */
+  /** Random per-duck phase so idle bobbing/swim-wobble animation isn't synchronized. */
   animationPhase: number
-  leftWing: THREE.Mesh
-  rightWing: THREE.Mesh
+  bodyMaterial: THREE.MeshStandardMaterial
 }
 
-const bodyGeometry = new THREE.SphereGeometry(0.55, 16, 12)
-const headGeometry = new THREE.SphereGeometry(0.32, 16, 12)
-const beakGeometry = new THREE.ConeGeometry(0.16, 0.34, 10)
-const eyeGeometry = new THREE.SphereGeometry(0.045, 8, 8)
-const wingGeometry = new THREE.SphereGeometry(0.3, 12, 8)
-const tailGeometry = new THREE.ConeGeometry(0.18, 0.32, 10)
+let templatePromise: Promise<THREE.Object3D> | null = null
 
-const beakMaterial = new THREE.MeshStandardMaterial({ color: 0xff9a3c, roughness: 0.5 })
-const eyeMaterial = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.3 })
+function loadTemplate(): Promise<THREE.Object3D> {
+  if (!templatePromise) {
+    templatePromise = new GLTFLoader().loadAsync(MODEL_URL).then((gltf) => {
+      gltf.scene.scale.setScalar(MODEL_SCALE)
+      return gltf.scene
+    })
+  }
+  return templatePromise
+}
 
-/** Builds a small stylized duck from primitive geometry - no external assets. */
-export function createDuckMesh(bodyColor: number): DuckMesh {
+/** Starts fetching the duck model immediately so it's already cached by the time a race is built. */
+export function preloadDuckModel(): void {
+  void loadTemplate()
+}
+
+/**
+ * Clones the shared duck template and gives this instance its own material so
+ * it can be tinted a distinct hue without affecting other ducks. The tint is
+ * intentionally light (low saturation, high lightness) because it multiplies
+ * the model's baked-in texture - a fully saturated tint would wash out the
+ * painted beak/eye detail.
+ */
+export async function createDuckMesh(tintColor: number): Promise<DuckMesh> {
+  const template = await loadTemplate()
+  const instance = template.clone(true)
+
+  let bodyMaterial: THREE.MeshStandardMaterial | null = null
+  instance.traverse((child) => {
+    if (child instanceof THREE.Mesh && child.material) {
+      const cloned = (child.material as THREE.MeshStandardMaterial).clone()
+      cloned.color.set(tintColor)
+      child.material = cloned
+      bodyMaterial = cloned
+    }
+  })
+
   const group = new THREE.Group()
-  const bodyMaterial = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.6 })
-  const wingMaterial = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(bodyColor).multiplyScalar(0.8),
-    roughness: 0.6,
-  })
+  group.add(instance)
 
-  const body = new THREE.Mesh(bodyGeometry, bodyMaterial)
-  body.scale.set(1, 0.85, 1.25)
-  body.position.y = 0.55
-  group.add(body)
-
-  const head = new THREE.Mesh(headGeometry, bodyMaterial)
-  head.position.set(0, 0.95, 0.55)
-  group.add(head)
-
-  const beak = new THREE.Mesh(beakGeometry, beakMaterial)
-  beak.rotation.x = Math.PI / 2
-  beak.position.set(0, 0.92, 0.92)
-  group.add(beak)
-
-  const eyeOffsetX = 0.14
-  const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial)
-  leftEye.position.set(-eyeOffsetX, 1.02, 0.72)
-  group.add(leftEye)
-  const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial)
-  rightEye.position.set(eyeOffsetX, 1.02, 0.72)
-  group.add(rightEye)
-
-  const leftWing = new THREE.Mesh(wingGeometry, wingMaterial)
-  leftWing.scale.set(0.4, 0.8, 1)
-  leftWing.position.set(-0.5, 0.6, -0.05)
-  group.add(leftWing)
-
-  const rightWing = new THREE.Mesh(wingGeometry, wingMaterial)
-  rightWing.scale.set(0.4, 0.8, 1)
-  rightWing.position.set(0.5, 0.6, -0.05)
-  group.add(rightWing)
-
-  const tail = new THREE.Mesh(tailGeometry, bodyMaterial)
-  tail.rotation.x = Math.PI / 2.3
-  tail.position.set(0, 0.65, -0.75)
-  group.add(tail)
-
-  group.traverse((child) => {
-    child.castShadow = false
-    child.receiveShadow = false
-  })
-
-  return { group, animationPhase: Math.random() * Math.PI * 2, leftWing, rightWing }
+  return {
+    group,
+    animationPhase: Math.random() * Math.PI * 2,
+    bodyMaterial: bodyMaterial ?? new THREE.MeshStandardMaterial({ color: tintColor }),
+  }
 }
 
+/** Light, low-saturation tint so each duck reads as a distinct color without crushing the model's texture detail. */
 export function duckColorForIndex(index: number, total: number): number {
-  return new THREE.Color().setHSL(duckHue(index, total), 0.65, 0.6).getHex()
+  return new THREE.Color().setHSL(duckHue(index, total), 0.55, 0.72).getHex()
 }

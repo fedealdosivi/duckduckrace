@@ -27,7 +27,8 @@ export interface RaceSceneOptions {
 const DUCK_BASE_Y = 0
 const BOB_AMPLITUDE = 0.07
 const BOB_FREQUENCY = 2.2
-const WING_FLAP_FREQUENCY = 6
+const SWIM_WOBBLE_FREQUENCY = 2.9
+const SWIM_WOBBLE_AMPLITUDE = 0.1
 /** How often live ranking is reported to the UI, in seconds - keeps Vue reactivity cheap during a 50-duck race. */
 const PROGRESS_REPORT_INTERVAL = 0.12
 /** Ducks are modeled facing +Z; rotate them to face +X, the left-to-right race direction. */
@@ -64,6 +65,8 @@ export class RaceSceneManager {
   private notifiedFinish = false
   private progressReportClock = 0
   private frameId: number | null = null
+  /** Bumped on every `buildRace` call so a slow, superseded load can't stomp on a newer one once it resolves. */
+  private buildGeneration = 0
 
   /** Distance/lookAt-bias are recomputed per race size in `fitCameraToTrack`; focusX is smoothed every frame. */
   private cameraDistance = 20
@@ -101,7 +104,22 @@ export class RaceSceneManager {
     this.startLoop()
   }
 
-  buildRace(racers: DuckRacer[], raceDurationSeconds: number): void {
+  /** Loads/clones the duck model for every racer before touching the scene - safe to call again before a previous call finishes. */
+  async buildRace(racers: DuckRacer[], raceDurationSeconds: number): Promise<void> {
+    const generation = ++this.buildGeneration
+
+    const layout = computeLaneLayout(racers.length)
+    const built = await Promise.all(
+      racers.map(async (racer, index) => ({
+        racer,
+        lane: layout[index],
+        mesh: await createDuckMesh(duckColorForIndex(index, racers.length)),
+      })),
+    )
+
+    // A newer buildRace call started (and possibly already finished) while we were loading - drop this stale result.
+    if (generation !== this.buildGeneration) return
+
     this.clearDucks()
     this.raceDuration = raceDurationSeconds
     this.raceElapsed = 0
@@ -109,11 +127,7 @@ export class RaceSceneManager {
     this.notifiedFinish = false
     this.mode = 'idle'
 
-    const layout = computeLaneLayout(racers.length)
-
-    racers.forEach((racer, index) => {
-      const lane = layout[index]
-      const mesh = createDuckMesh(duckColorForIndex(index, racers.length))
+    for (const { racer, lane, mesh } of built) {
       mesh.group.rotation.y = FACE_TRAVEL_DIRECTION
       mesh.group.position.set(START_X, DUCK_BASE_Y, lane.z)
       this.scene.add(mesh.group)
@@ -123,7 +137,7 @@ export class RaceSceneManager {
       mesh.group.add(label)
 
       this.ducks.push({ racer, mesh, label, lane, finishedNotified: false, lastX: START_X })
-    })
+    }
 
     this.buildTrackMarkers(racers.length)
     this.fitCameraToTrack(racers.length)
@@ -149,6 +163,7 @@ export class RaceSceneManager {
   }
 
   dispose(): void {
+    this.buildGeneration++
     if (this.frameId !== null) cancelAnimationFrame(this.frameId)
     this.resizeObserver.disconnect()
     this.clearDucks()
@@ -260,7 +275,7 @@ export class RaceSceneManager {
       const bob = Math.sin(elapsed * BOB_FREQUENCY + duck.mesh.animationPhase) * BOB_AMPLITUDE
       duck.mesh.group.position.set(START_X, DUCK_BASE_Y + bob, duck.lane.z)
       duck.lastX = START_X
-      this.flapWings(duck, elapsed)
+      this.applySwimWobble(duck, elapsed)
     }
   }
 
@@ -268,7 +283,7 @@ export class RaceSceneManager {
     for (const duck of this.ducks) {
       const bob = Math.sin(elapsed * BOB_FREQUENCY + duck.mesh.animationPhase) * BOB_AMPLITUDE
       duck.mesh.group.position.set(duck.lastX, DUCK_BASE_Y + bob, duck.lane.z)
-      this.flapWings(duck, elapsed)
+      this.applySwimWobble(duck, elapsed)
     }
   }
 
@@ -282,7 +297,7 @@ export class RaceSceneManager {
       const bob = Math.sin(elapsed * BOB_FREQUENCY + duck.mesh.animationPhase) * BOB_AMPLITUDE
       duck.mesh.group.position.set(x, DUCK_BASE_Y + bob, duck.lane.z)
       duck.lastX = x
-      this.flapWings(duck, elapsed)
+      this.applySwimWobble(duck, elapsed)
 
       progressSum += sample.progress
       ranking.push({
@@ -310,9 +325,9 @@ export class RaceSceneManager {
     return this.ducks.length > 0 ? progressSum / this.ducks.length : 0
   }
 
-  private flapWings(duck: DuckEntry, elapsed: number): void {
-    const flap = Math.sin(elapsed * WING_FLAP_FREQUENCY + duck.mesh.animationPhase) * 0.35
-    duck.mesh.leftWing.rotation.z = flap
-    duck.mesh.rightWing.rotation.z = -flap
+  /** Gentle side-to-side rock to sell "floating on water" - the model has no separate wing meshes to flap. */
+  private applySwimWobble(duck: DuckEntry, elapsed: number): void {
+    const roll = Math.sin(elapsed * SWIM_WOBBLE_FREQUENCY + duck.mesh.animationPhase) * SWIM_WOBBLE_AMPLITUDE
+    duck.mesh.group.rotation.z = roll
   }
 }

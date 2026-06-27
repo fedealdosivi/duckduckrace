@@ -17,14 +17,15 @@ const emit = defineEmits<{
 const container = ref<HTMLDivElement | null>(null)
 let scene: RaceSceneManager | null = null
 
-onMounted(() => {
+onMounted(async () => {
   if (!container.value) return
-  scene = new RaceSceneManager(container.value, {
+  const instance = new RaceSceneManager(container.value, {
     onFinished: (order) => emit('finished', order),
     onProgress: (ranking) => emit('progress', ranking),
   })
-  scene.buildRace(props.racers, props.raceDurationSeconds)
-  scene.setMode(props.mode)
+  scene = instance
+  await instance.buildRace(props.racers, props.raceDurationSeconds)
+  instance.setMode(props.mode)
 })
 
 onUnmounted(() => {
@@ -34,9 +35,11 @@ onUnmounted(() => {
 
 watch(
   () => props.racers,
-  (racers) => {
-    scene?.buildRace(racers, props.raceDurationSeconds)
-    scene?.setMode(props.mode)
+  async (racers) => {
+    const instance = scene
+    if (!instance) return
+    await instance.buildRace(racers, props.raceDurationSeconds)
+    instance.setMode(props.mode)
   },
 )
 
