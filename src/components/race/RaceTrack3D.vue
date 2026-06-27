@@ -6,10 +6,11 @@ import { RaceSceneManager, type SceneMode } from '@/three/sceneManager'
 const props = defineProps<{
   racers: DuckRacer[]
   mode: SceneMode
-  raceDurationSeconds: number
+  winnerId: string
 }>()
 
 const emit = defineEmits<{
+  winnerCrossed: []
   finished: [order: FinishOrderEntry[]]
   progress: [ranking: RankEntry[]]
 }>()
@@ -20,11 +21,12 @@ let scene: RaceSceneManager | null = null
 onMounted(async () => {
   if (!container.value) return
   const instance = new RaceSceneManager(container.value, {
+    onWinnerCrossed: () => emit('winnerCrossed'),
     onFinished: (order) => emit('finished', order),
     onProgress: (ranking) => emit('progress', ranking),
   })
   scene = instance
-  await instance.buildRace(props.racers, props.raceDurationSeconds)
+  await instance.buildRace(props.racers, props.winnerId)
   instance.setMode(props.mode)
 })
 
@@ -38,7 +40,7 @@ watch(
   async (racers) => {
     const instance = scene
     if (!instance) return
-    await instance.buildRace(racers, props.raceDurationSeconds)
+    await instance.buildRace(racers, props.winnerId)
     instance.setMode(props.mode)
   },
 )

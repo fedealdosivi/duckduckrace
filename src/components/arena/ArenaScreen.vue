@@ -18,21 +18,19 @@ const raceStore = useRaceStore()
 const race = computed(() => raceStore.currentRace)
 const phase = computed(() => raceStore.phase)
 
+// Ducks never freeze once the race starts - they keep swimming straight through the results
+// phase, so 'racing' and 'results' share the same scene mode and the animation never interrupts.
 const sceneMode = computed<SceneMode>(() => {
-  if (phase.value === 'racing') return 'racing'
-  if (phase.value === 'results') return 'finished'
-  return 'idle'
+  return phase.value === 'racing' || phase.value === 'results' ? 'racing' : 'idle'
 })
 
+// Tracks actual completion, not the popup phase - stragglers keep swimming behind the winner
+// modal, so the panel stays "Live Standings" until every duck has truly crossed the line.
+const allFinished = ref(false)
+
 const rankTitle = computed(() => {
-  switch (phase.value) {
-    case 'racing':
-      return 'Live Standings'
-    case 'results':
-      return 'Final Results'
-    default:
-      return 'Starting Lineup'
-  }
+  if (phase.value === 'preview' || phase.value === 'countdown') return 'Starting Lineup'
+  return allFinished.value ? 'Final Results' : 'Live Standings'
 })
 
 const liveRanking = ref<RankEntry[]>([])
@@ -40,6 +38,7 @@ watch(
   race,
   (next) => {
     liveRanking.value = next ? startingLineup(next.racers) : []
+    allFinished.value = false
   },
   { immediate: true },
 )
@@ -71,9 +70,15 @@ function onProgress(ranking: RankEntry[]) {
   liveRanking.value = sortByProgressDesc(ranking)
 }
 
-function onFinished(order: FinishOrderEntry[]) {
-  if (race.value) liveRanking.value = finalStandings(race.value.racers, order)
+/** The instant the winner crosses the line - before anyone else does - is when the popup appears. */
+function onWinnerCrossed() {
   raceStore.finishRace()
+}
+
+/** Fires later, once every duck has crossed (they keep swimming in the background behind the winner popup). */
+function onAllFinished(order: FinishOrderEntry[]) {
+  if (race.value) liveRanking.value = finalStandings(race.value.racers, order)
+  allFinished.value = true
 }
 
 function onShuffle() {
@@ -98,9 +103,10 @@ const bottomSheetOpen = ref(false)
       <RaceTrack3D
         :racers="race.racers"
         :mode="sceneMode"
-        :race-duration-seconds="race.raceDurationSeconds"
+        :winner-id="race.winner.id"
         @progress="onProgress"
-        @finished="onFinished"
+        @winner-crossed="onWinnerCrossed"
+        @finished="onAllFinished"
       />
       <CountdownOverlay v-if="phase === 'countdown'" @complete="onCountdownComplete" />
       <WinnerModal v-if="phase === 'results'" :winner="race.winner" />

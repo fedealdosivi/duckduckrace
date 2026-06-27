@@ -7,8 +7,8 @@ import { createDuckMesh, duckColorForIndex, type DuckMesh } from './duck'
 import { createWaterMesh, updateWater } from './water'
 import { createLabelRenderer, createNameLabel } from './labels'
 
-/** `idle` = bobbing at the start line, `racing` = animating toward the finish, `finished` = holding the final position. */
-export type SceneMode = 'idle' | 'racing' | 'finished'
+/** `idle` = bobbing at the start line, `racing` = animating toward (and, once finished, past) the finish line. */
+export type SceneMode = 'idle' | 'racing'
 
 interface DuckEntry {
   racer: DuckRacer
@@ -20,6 +20,9 @@ interface DuckEntry {
 }
 
 export interface RaceSceneOptions {
+  /** Fires once, the instant the pre-selected winner's duck crosses the finish line - before anyone else does. */
+  onWinnerCrossed?: () => void
+  /** Fires once every duck has crossed (ducks keep swimming past the line, they never freeze). */
   onFinished?: (order: FinishOrderEntry[]) => void
   onProgress?: (ranking: RankEntry[]) => void
 }
@@ -29,6 +32,8 @@ const BOB_AMPLITUDE = 0.07
 const BOB_FREQUENCY = 2.2
 const SWIM_WOBBLE_FREQUENCY = 2.9
 const SWIM_WOBBLE_AMPLITUDE = 0.1
+/** How fast a finished duck keeps cruising past the finish line instead of stopping dead. */
+const CRUISE_SPEED_AFTER_FINISH = 2.2
 /** How often live ranking is reported to the UI, in seconds - keeps Vue reactivity cheap during a 50-duck race. */
 const PROGRESS_REPORT_INTERVAL = 0.12
 /** Ducks are modeled facing +Z; rotate them to face +X, the left-to-right race direction. */
@@ -60,9 +65,11 @@ export class RaceSceneManager {
   private trackMarkers: THREE.Object3D[] = []
   private mode: SceneMode = 'idle'
   private raceElapsed = 0
-  private raceDuration = 10
+  private winnerParticipantId: string | null = null
+  private winnerCrossedNotified = false
   private finishedOrder: FinishOrderEntry[] = []
-  private notifiedFinish = false
+  private finishedCount = 0
+  private allFinishedNotified = false
   private progressReportClock = 0
   private frameId: number | null = null
   /** Bumped on every `buildRace` call so a slow, superseded load can't stomp on a newer one once it resolves. */
@@ -105,7 +112,7 @@ export class RaceSceneManager {
   }
 
   /** Loads/clones the duck model for every racer before touching the scene - safe to call again before a previous call finishes. */
-  async buildRace(racers: DuckRacer[], raceDurationSeconds: number): Promise<void> {
+  async buildRace(racers: DuckRacer[], winnerId: string): Promise<void> {
     const generation = ++this.buildGeneration
 
     const layout = computeLaneLayout(racers.length)
@@ -121,10 +128,12 @@ export class RaceSceneManager {
     if (generation !== this.buildGeneration) return
 
     this.clearDucks()
-    this.raceDuration = raceDurationSeconds
     this.raceElapsed = 0
+    this.winnerParticipantId = winnerId
+    this.winnerCrossedNotified = false
     this.finishedOrder = []
-    this.notifiedFinish = false
+    this.finishedCount = 0
+    this.allFinishedNotified = false
     this.mode = 'idle'
 
     for (const { racer, lane, mesh } of built) {
@@ -146,8 +155,10 @@ export class RaceSceneManager {
   setMode(mode: SceneMode): void {
     if (mode === 'racing' && this.mode !== 'racing') {
       this.raceElapsed = 0
-      this.notifiedFinish = false
+      this.winnerCrossedNotified = false
       this.finishedOrder = []
+      this.finishedCount = 0
+      this.allFinishedNotified = false
       this.ducks.forEach((d) => (d.finishedNotified = false))
     }
     this.mode = mode
@@ -249,16 +260,9 @@ export class RaceSceneManager {
       updateWater(this.water, elapsed)
 
       if (this.mode === 'racing') {
-        this.raceElapsed = Math.min(this.raceElapsed + dt, this.raceDuration)
+        this.raceElapsed += dt
         const avgProgress = this.updateRacingDucks(elapsed, dt)
         this.updateCameraFollow(avgProgress)
-        if (this.raceElapsed >= this.raceDuration && !this.notifiedFinish) {
-          this.notifiedFinish = true
-          this.options.onFinished?.(this.finishedOrder)
-        }
-      } else if (this.mode === 'finished') {
-        this.updateHeldDucks(elapsed)
-        this.updateCameraFollow(1)
       } else {
         this.updateIdleDucks(elapsed)
         this.updateCameraFollow(0)
@@ -279,21 +283,18 @@ export class RaceSceneManager {
     }
   }
 
-  private updateHeldDucks(elapsed: number): void {
-    for (const duck of this.ducks) {
-      const bob = Math.sin(elapsed * BOB_FREQUENCY + duck.mesh.animationPhase) * BOB_AMPLITUDE
-      duck.mesh.group.position.set(duck.lastX, DUCK_BASE_Y + bob, duck.lane.z)
-      this.applySwimWobble(duck, elapsed)
-    }
-  }
-
   private updateRacingDucks(elapsed: number, dt: number): number {
     const ranking: RankEntry[] = []
     let progressSum = 0
 
     for (const duck of this.ducks) {
       const sample = progressAt(duck.racer.motion, this.raceElapsed)
-      const x = THREE.MathUtils.lerp(START_X, FINISH_X, sample.progress)
+
+      // Once a duck has crossed the finish line it keeps cruising forward instead of stopping dead on the line.
+      const x = sample.finished
+        ? FINISH_X + (this.raceElapsed - duck.racer.motion.finishTime) * CRUISE_SPEED_AFTER_FINISH
+        : THREE.MathUtils.lerp(START_X, FINISH_X, sample.progress)
+
       const bob = Math.sin(elapsed * BOB_FREQUENCY + duck.mesh.animationPhase) * BOB_AMPLITUDE
       duck.mesh.group.position.set(x, DUCK_BASE_Y + bob, duck.lane.z)
       duck.lastX = x
@@ -309,11 +310,22 @@ export class RaceSceneManager {
 
       if (sample.finished && !duck.finishedNotified) {
         duck.finishedNotified = true
+        this.finishedCount++
         this.finishedOrder.push({
           participantId: duck.racer.participant.id,
           finishTime: duck.racer.motion.finishTime,
         })
+
+        if (duck.racer.participant.id === this.winnerParticipantId && !this.winnerCrossedNotified) {
+          this.winnerCrossedNotified = true
+          this.options.onWinnerCrossed?.()
+        }
       }
+    }
+
+    if (this.finishedCount === this.ducks.length && this.ducks.length > 0 && !this.allFinishedNotified) {
+      this.allFinishedNotified = true
+      this.options.onFinished?.(this.finishedOrder)
     }
 
     this.progressReportClock += dt
